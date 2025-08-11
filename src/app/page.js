@@ -304,6 +304,36 @@ const VoiceSelectButton = styled.button`
   }
 `;
 
+const AudioPlayerButton = styled.button`
+  position: absolute;
+  bottom: 8rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  border-radius: 50px;
+  padding: 1rem 2rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  font-size: 1.1rem;
+  box-shadow: 0 10px 30px rgba(16, 185, 129, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  z-index: 10;
+
+  &:hover {
+    transform: translateX(-50%) translateY(-3px);
+    box-shadow: 0 15px 40px rgba(16, 185, 129, 0.4);
+  }
+
+  &:active {
+    transform: translateX(-50%) translateY(-1px);
+  }
+`;
+
 // Client-only Komponente
 const AudioRecorderComponent = dynamic(() => Promise.resolve(AudioRecorder), {
   ssr: false,
@@ -317,6 +347,8 @@ function AudioRecorder() {
   const [audioBlob, setAudioBlob] = useState(null);
   const [selectedVoice, setSelectedVoice] = useState("alloy");
   const [showVoiceSelector, setShowVoiceSelector] = useState(false);
+  const [pendingAudio, setPendingAudio] = useState(null);
+  const [showAudioPlayer, setShowAudioPlayer] = useState(false);
   const recorderRef = useRef(null);
   const silenceTimerRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -376,69 +408,66 @@ function AudioRecorder() {
     },
   ];
 
-  // Audio nur im Browser abspielen
+  // Audio-Handling - Manuelle Wiedergabe für Safari-Kompatibilität
   useEffect(() => {
-    if (
-      audioBlob &&
-      typeof window !== "undefined" &&
-      window.URL &&
-      window.URL.createObjectURL
-    ) {
+    if (audioBlob) {
       console.log(
-        "🔊 Audio-Playback startet...",
+        "🔊 Audio bereit für Wiedergabe:",
         audioBlob.type,
         audioBlob.size
       );
-      try {
-        const audioUrl = window.URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-
-        // Bessere Audio-Konfiguration für Vercel
-        audio.preload = "auto";
-        audio.volume = 1.0;
-
-        // Event-Listener für Debug
-        audio.addEventListener("loadstart", () =>
-          console.log("🔊 Audio lädt...")
-        );
-        audio.addEventListener("canplay", () => console.log("🔊 Audio bereit"));
-        audio.addEventListener("play", () => console.log("🔊 Audio spielt"));
-        audio.addEventListener("ended", () => {
-          console.log("🔊 Audio beendet");
-          setStatusMessage("Klicken zum Sprechen");
-        });
-        audio.addEventListener("error", (e) => {
-          console.error("🔊 Audio Error:", e);
-          setStatusMessage("Audio-Fehler - Klicken zum Sprechen");
-        });
-
-        audio.play().catch((e) => {
-          console.error("🔊 Audio play failed:", e);
-          setStatusMessage("Audio-Wiedergabe fehlgeschlagen");
-          setTimeout(() => {
-            setStatusMessage("Klicken zum Sprechen");
-          }, 2000);
-        });
-
-        setAudioBlob(null);
-        setStatusMessage("🎵 Antwort läuft...");
-
-        // Cleanup nach längerer Zeit falls Audio nicht automatisch endet
-        setTimeout(() => {
-          if (audioUrl) {
-            window.URL.revokeObjectURL(audioUrl);
-          }
-          setStatusMessage("Klicken zum Sprechen");
-        }, 10000); // 10 Sekunden Fallback
-      } catch (e) {
-        console.error("🔊 Audio creation failed:", e);
-        setStatusMessage("Audio-Erstellung fehlgeschlagen");
-        setTimeout(() => {
-          setStatusMessage("Klicken zum Sprechen");
-        }, 2000);
-      }
+      setPendingAudio(audioBlob);
+      setShowAudioPlayer(true);
+      setStatusMessage("🎵 Antwort bereit - Klicke um zu hören!");
+      setAudioBlob(null);
     }
   }, [audioBlob]);
+
+  const playPendingAudio = async () => {
+    if (!pendingAudio || typeof window === "undefined") return;
+
+    try {
+      console.log("🔊 Starte manuelle Audio-Wiedergabe...");
+      const audioUrl = window.URL.createObjectURL(pendingAudio);
+      const audio = new Audio(audioUrl);
+
+      audio.preload = "auto";
+      audio.volume = 1.0;
+
+      // Event-Listener
+      audio.addEventListener("loadstart", () =>
+        console.log("🔊 Audio lädt...")
+      );
+      audio.addEventListener("canplay", () => console.log("🔊 Audio bereit"));
+      audio.addEventListener("play", () => {
+        console.log("🔊 Audio spielt");
+        setStatusMessage("🎵 Antwort läuft...");
+        setShowAudioPlayer(false);
+      });
+      audio.addEventListener("ended", () => {
+        console.log("🔊 Audio beendet");
+        setStatusMessage("Klicken zum Sprechen");
+        setPendingAudio(null);
+        window.URL.revokeObjectURL(audioUrl);
+      });
+      audio.addEventListener("error", (e) => {
+        console.error("🔊 Audio Error:", e);
+        setStatusMessage("Audio-Fehler - Klicken zum Sprechen");
+        setShowAudioPlayer(false);
+        setPendingAudio(null);
+      });
+
+      await audio.play();
+    } catch (e) {
+      console.error("🔊 Manuelle Audio-Wiedergabe fehlgeschlagen:", e);
+      setStatusMessage("Audio-Wiedergabe fehlgeschlagen");
+      setShowAudioPlayer(false);
+      setPendingAudio(null);
+      setTimeout(() => {
+        setStatusMessage("Klicken zum Sprechen");
+      }, 2000);
+    }
+  };
 
   // Voice Activity Detection
   function startVoiceActivityDetection(stream) {
@@ -846,6 +875,12 @@ function AudioRecorder() {
       >
         {getButtonText()}
       </CircleButton>
+
+      {showAudioPlayer && pendingAudio && (
+        <AudioPlayerButton onClick={playPendingAudio}>
+          🔊 Antwort anhören
+        </AudioPlayerButton>
+      )}
 
       <StatusText isBlinking={isProcessing}>{statusMessage}</StatusText>
     </Container>
