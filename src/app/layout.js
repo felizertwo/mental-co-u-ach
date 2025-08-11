@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Mental Coach",
+  title: "Mental Co(u)ach",
   description: "AI-powered mental coaching app",
 };
 

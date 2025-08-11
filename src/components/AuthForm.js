@@ -183,7 +183,7 @@ export default function AuthForm() {
   return (
     <AuthContainer>
       <AuthCard>
-        <Title>🧠 Mental Coach</Title>
+        <Title>🧠 Mental Co(u)ach</Title>
         <Form onSubmit={handleSubmit}>
           <Input
             type="email"

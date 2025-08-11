@@ -726,7 +726,7 @@ function AudioRecorder() {
         {voiceOptions.find((v) => v.id === selectedVoice)?.name}
       </VoiceSelectButton>
 
-      <Title>Mental 🧠 Coach</Title>
+      <Title>Mental 🧠 Co(u)ach</Title>
 
       {showVoiceSelector && (
         <VoiceSelectorContainer>
