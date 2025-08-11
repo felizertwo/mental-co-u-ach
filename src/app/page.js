@@ -184,7 +184,7 @@ const StatusText = styled.div.withConfig({
 const Title = styled.h1`
   position: absolute;
   top: 7rem;
-  font-size: 2.5rem;
+  font-size: 2rem;
   color: white;
   text-align: center;
   margin: 0;
