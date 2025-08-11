@@ -384,20 +384,58 @@ function AudioRecorder() {
       window.URL &&
       window.URL.createObjectURL
     ) {
+      console.log(
+        "🔊 Audio-Playback startet...",
+        audioBlob.type,
+        audioBlob.size
+      );
       try {
         const audioUrl = window.URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
-        audio.play().catch((e) => console.log("Audio play failed:", e));
+
+        // Bessere Audio-Konfiguration für Vercel
+        audio.preload = "auto";
+        audio.volume = 1.0;
+
+        // Event-Listener für Debug
+        audio.addEventListener("loadstart", () =>
+          console.log("🔊 Audio lädt...")
+        );
+        audio.addEventListener("canplay", () => console.log("🔊 Audio bereit"));
+        audio.addEventListener("play", () => console.log("🔊 Audio spielt"));
+        audio.addEventListener("ended", () => {
+          console.log("🔊 Audio beendet");
+          setStatusMessage("Klicken zum Sprechen");
+        });
+        audio.addEventListener("error", (e) => {
+          console.error("🔊 Audio Error:", e);
+          setStatusMessage("Audio-Fehler - Klicken zum Sprechen");
+        });
+
+        audio.play().catch((e) => {
+          console.error("🔊 Audio play failed:", e);
+          setStatusMessage("Audio-Wiedergabe fehlgeschlagen");
+          setTimeout(() => {
+            setStatusMessage("Klicken zum Sprechen");
+          }, 2000);
+        });
+
         setAudioBlob(null);
         setStatusMessage("🎵 Antwort läuft...");
 
-        // Sehr kurze Rückkehr zum Bereit-Status
+        // Cleanup nach längerer Zeit falls Audio nicht automatisch endet
+        setTimeout(() => {
+          if (audioUrl) {
+            window.URL.revokeObjectURL(audioUrl);
+          }
+          setStatusMessage("Klicken zum Sprechen");
+        }, 10000); // 10 Sekunden Fallback
+      } catch (e) {
+        console.error("🔊 Audio creation failed:", e);
+        setStatusMessage("Audio-Erstellung fehlgeschlagen");
         setTimeout(() => {
           setStatusMessage("Klicken zum Sprechen");
-        }, 1500); // Nur 1.5 Sekunden
-      } catch (e) {
-        console.log("Audio creation failed:", e);
-        setStatusMessage("Klicken zum Sprechen");
+        }, 2000);
       }
     }
   }, [audioBlob]);
@@ -559,9 +597,22 @@ function AudioRecorder() {
             voice: selectedVoice,
           }),
         });
-        if (!ttsRes.ok) throw new Error("TTS failed");
+
+        console.log("🔊 TTS Response Status:", ttsRes.status, ttsRes.ok);
+
+        if (!ttsRes.ok) {
+          const errorText = await ttsRes.text();
+          console.error("❌ TTS Error Response:", errorText);
+          throw new Error(`TTS failed: ${ttsRes.status} - ${errorText}`);
+        }
+
         const responseAudioBlob = await ttsRes.blob();
-        console.log("TTS fertig - Audio bereit!");
+        console.log(
+          "🔊 TTS Audio Blob erhalten:",
+          responseAudioBlob.type,
+          responseAudioBlob.size,
+          "bytes"
+        );
 
         // Audio sofort abspielen
         setAudioBlob(responseAudioBlob);
@@ -687,9 +738,22 @@ function AudioRecorder() {
             voice: selectedVoice,
           }),
         });
-        if (!ttsRes.ok) throw new Error("TTS failed");
+
+        console.log("🔊 TURBO TTS Response Status:", ttsRes.status, ttsRes.ok);
+
+        if (!ttsRes.ok) {
+          const errorText = await ttsRes.text();
+          console.error("❌ TURBO TTS Error:", errorText);
+          throw new Error(`TTS failed: ${ttsRes.status} - ${errorText}`);
+        }
+
         const responseAudioBlob = await ttsRes.blob();
-        console.log("⚡ TTS TURBO fertig - Audio bereit!");
+        console.log(
+          "🔊 TURBO Audio Blob:",
+          responseAudioBlob.type,
+          responseAudioBlob.size,
+          "bytes"
+        );
 
         // Audio sofort setzen
         setAudioBlob(responseAudioBlob);
