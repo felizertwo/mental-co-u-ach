@@ -509,6 +509,7 @@ function AudioRecorder() {
       console.log("⚡ SCHNELLE Verarbeitung startet...");
       try {
         const blob = recorderRef.current.getBlob();
+        console.log("🎵 Audio Blob:", blob.type, blob.size, "bytes");
         const formData = new FormData();
         formData.append("audio", blob, "voice.wav");
 
@@ -591,7 +592,13 @@ function AudioRecorder() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      recorderRef.current = new RecordRTC(stream, { type: "audio" });
+      recorderRef.current = new RecordRTC(stream, {
+        type: "audio",
+        mimeType: "audio/wav",
+        recorderType: RecordRTC.StereoAudioRecorder,
+        numberOfAudioChannels: 1,
+        desiredSampRate: 16000,
+      });
       recorderRef.current.startRecording();
       setIsRecording(true);
       setStatusMessage("Spreche LAUT - stoppt in 0.4s bei Pause!");
@@ -638,6 +645,7 @@ function AudioRecorder() {
       console.log("⚡ TURBO Verarbeitung startet...");
       try {
         const blob = recorderRef.current.getBlob();
+        console.log("🎵 TURBO Audio Blob:", blob.type, blob.size, "bytes");
         const formData = new FormData();
         formData.append("audio", blob, "voice.wav");
 

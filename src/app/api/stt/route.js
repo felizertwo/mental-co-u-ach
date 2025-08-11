@@ -17,11 +17,29 @@ export async function POST(req) {
       });
     }
 
+    console.log(
+      "🎤 STT Request - File type:",
+      audioFile.type,
+      "Size:",
+      audioFile.size
+    );
+
+    // Stelle sicher, dass die Datei als WAV mit korrektem Namen gesendet wird
+    const audioFileWithName = new File([audioFile], "audio.wav", {
+      type: "audio/wav",
+    });
+
     // OpenAI SDK akzeptiert File/Blob direkt
     const transcription = await openai.audio.transcriptions.create({
-      file: audioFile,
+      file: audioFileWithName,
       model: "whisper-1",
+      language: "de", // Deutsch für bessere Erkennung
     });
+
+    console.log(
+      "✅ STT erfolgreich:",
+      transcription.text?.substring(0, 50) + "..."
+    );
 
     return new Response(JSON.stringify({ text: transcription.text || "" }), {
       status: 200,
