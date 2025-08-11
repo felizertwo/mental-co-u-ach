@@ -408,7 +408,7 @@ function AudioRecorder() {
     },
   ];
 
-  // Audio-Handling - Manuelle Wiedergabe für Safari-Kompatibilität
+  // Audio-Handling - Automatisch versuchen, bei Fehler manuell
   useEffect(() => {
     if (audioBlob) {
       console.log(
@@ -416,12 +416,61 @@ function AudioRecorder() {
         audioBlob.type,
         audioBlob.size
       );
-      setPendingAudio(audioBlob);
-      setShowAudioPlayer(true);
-      setStatusMessage("🎵 Antwort bereit - Klicke um zu hören!");
+
+      // Versuche automatisches Playback
+      tryAutoPlay(audioBlob);
+
       setAudioBlob(null);
     }
   }, [audioBlob]);
+
+  const tryAutoPlay = async (blob) => {
+    try {
+      console.log("🔊 Versuche automatische Wiedergabe...");
+      const audioUrl = window.URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+
+      audio.preload = "auto";
+      audio.volume = 1.0;
+
+      // Event-Listener für automatisches Playback
+      audio.addEventListener("loadstart", () =>
+        console.log("🔊 Auto-Audio lädt...")
+      );
+      audio.addEventListener("canplay", () =>
+        console.log("🔊 Auto-Audio bereit")
+      );
+      audio.addEventListener("play", () => {
+        console.log("🔊 Auto-Audio spielt erfolgreich!");
+        setStatusMessage("🎵 Antwort läuft...");
+        setShowAudioPlayer(false);
+        setPendingAudio(null);
+      });
+      audio.addEventListener("ended", () => {
+        console.log("🔊 Auto-Audio beendet");
+        setStatusMessage("Klicken zum Sprechen");
+        window.URL.revokeObjectURL(audioUrl);
+      });
+      audio.addEventListener("error", (e) => {
+        console.error("🔊 Auto-Audio Error:", e);
+        fallbackToManualPlay(blob);
+      });
+
+      // Versuche automatisches Abspielen
+      await audio.play();
+    } catch (e) {
+      console.log("🔊 Automatisches Playback blockiert:", e.name);
+      // Fallback zu manuellem Button
+      fallbackToManualPlay(blob);
+    }
+  };
+
+  const fallbackToManualPlay = (blob) => {
+    console.log("🔊 Fallback zu manuellem Audio-Button...");
+    setPendingAudio(blob);
+    setShowAudioPlayer(true);
+    setStatusMessage("🎵 Antwort bereit - Klicke um zu hören!");
+  };
 
   const playPendingAudio = async () => {
     if (!pendingAudio || typeof window === "undefined") return;
