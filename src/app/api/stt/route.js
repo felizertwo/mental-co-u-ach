@@ -6,6 +6,9 @@ export const runtime = "nodejs"; // oder "edge" – beides geht hier
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function POST(req) {
+  const requestStartTime = Date.now();
+  console.log("🎤 STT API: Request startet...");
+
   try {
     const formData = await req.formData();
     const audioFile = formData.get("audio"); // kommt als Blob/File
@@ -29,6 +32,9 @@ export async function POST(req) {
       type: "audio/wav",
     });
 
+    console.log("🤖 OpenAI: Whisper-Transkription startet...");
+    const whisperStartTime = Date.now();
+
     // OpenAI SDK akzeptiert File/Blob direkt
     const transcription = await openai.audio.transcriptions.create({
       file: audioFileWithName,
@@ -36,17 +42,20 @@ export async function POST(req) {
       language: "de", // Deutsch für bessere Erkennung
     });
 
-    console.log(
-      "✅ STT erfolgreich:",
-      transcription.text?.substring(0, 50) + "..."
-    );
+    const whisperDuration = Date.now() - whisperStartTime;
+    const totalDuration = Date.now() - requestStartTime;
+
+    console.log(`✅ OpenAI: Whisper fertig in ${whisperDuration}ms`);
+    console.log(`🎉 STT API: Request komplett in ${totalDuration}ms`);
+    console.log(`📝 STT: "${transcription.text?.substring(0, 100)}..."`);
 
     return new Response(JSON.stringify({ text: transcription.text || "" }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
-    console.error("STT error:", err);
+    const errorDuration = Date.now() - requestStartTime;
+    console.error(`❌ STT Error nach ${errorDuration}ms:`, err);
     return new Response(JSON.stringify({ error: "STT failed" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
