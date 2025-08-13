@@ -285,8 +285,7 @@ const CloseButton = styled.button`
 const VoiceSelectButton = styled.button`
   position: absolute;
   top: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 1rem;
   background: rgba(255, 255, 255, 0.9);
   color: #374151;
   border: 2px solid rgba(16, 185, 129, 0.3);
@@ -300,7 +299,7 @@ const VoiceSelectButton = styled.button`
   &:hover {
     background: rgba(16, 185, 129, 0.1);
     border-color: rgba(16, 185, 129, 0.6);
-    transform: translateX(-50%) translateY(-2px);
+    transform: translateY(-2px);
   }
 `;
 
@@ -334,6 +333,34 @@ const AudioPlayerButton = styled.button`
   }
 `;
 
+const RealtimeToggle = styled.button`
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: ${(props) =>
+    props.isActive
+      ? "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)"
+      : "rgba(255, 255, 255, 0.9)"};
+  color: ${(props) => (props.isActive ? "white" : "#374151")};
+  border: 2px solid
+    ${(props) => (props.isActive ? "#dc2626" : "rgba(16, 185, 129, 0.3)")};
+  border-radius: 12px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  &:hover {
+    transform: translateX(-50%) translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+  }
+`;
+
 // Client-only Komponente
 const AudioRecorderComponent = dynamic(() => Promise.resolve(AudioRecorder), {
   ssr: false,
@@ -349,6 +376,9 @@ function AudioRecorder() {
   const [showVoiceSelector, setShowVoiceSelector] = useState(false);
   const [pendingAudio, setPendingAudio] = useState(null);
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
+  const [isRealtimeMode, setIsRealtimeMode] = useState(false);
+  const [realtimeTranscript, setRealtimeTranscript] = useState("");
+  const realtimeChunksRef = useRef([]);
   const recorderRef = useRef(null);
   const silenceTimerRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -471,6 +501,118 @@ function AudioRecorder() {
     setShowAudioPlayer(true);
     setStatusMessage("🎵 Antwort bereit - Klicke um zu hören!");
   };
+
+  // Realtime Audio Streaming
+  async function startRealtimeRecording() {
+    try {
+      console.log("🎙️ Realtime: Aufnahme startet...");
+
+      const { default: RecordRTC } = await import("recordrtc");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      // Konfiguration für Realtime-Chunks
+      recorderRef.current = new RecordRTC(stream, {
+        type: "audio",
+        mimeType: "audio/wav",
+        recorderType: RecordRTC.StereoAudioRecorder,
+        numberOfAudioChannels: 1,
+        desiredSampRate: 16000,
+        timeSlice: 1000, // 1-Sekunden-Chunks
+        ondataavailable: (blob) => {
+          console.log("🎤 Realtime Chunk:", blob.size, "bytes");
+          sendRealtimeChunk(blob);
+        },
+      });
+
+      recorderRef.current.startRecording();
+      realtimeChunksRef.current = [];
+      setIsRecording(true);
+      setStatusMessage("🎙️ Realtime-Modus aktiv - sprechen Sie...");
+      setRealtimeTranscript("");
+    } catch (error) {
+      console.error("❌ Realtime Recording Error:", error);
+      setStatusMessage("Realtime-Aufnahme fehlgeschlagen");
+    }
+  }
+
+  async function sendRealtimeChunk(audioBlob) {
+    try {
+      const isFirst = realtimeChunksRef.current.length === 0;
+      realtimeChunksRef.current.push(audioBlob);
+
+      const formData = new FormData();
+      formData.append("audioChunk", audioBlob);
+      formData.append("isFirst", isFirst.toString());
+      formData.append("isLast", "false");
+      formData.append("sessionId", user?.id || "anonymous");
+
+      const response = await fetch("/api/realtime", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.type === "partial") {
+          setRealtimeTranscript(data.transcript);
+          setStatusMessage(`🎙️ "${data.transcript}"`);
+        }
+      }
+    } catch (error) {
+      console.error("❌ Realtime Chunk Error:", error);
+    }
+  }
+
+  async function stopRealtimeRecording() {
+    if (!recorderRef.current || !isRecording) return;
+
+    console.log("🏁 Realtime: Aufnahme beenden...");
+    setIsRecording(false);
+    setIsProcessing(true);
+    setStatusMessage("🔄 Realtime: Finale Verarbeitung...");
+
+    recorderRef.current.stopRecording(async () => {
+      try {
+        const finalBlob = recorderRef.current.getBlob();
+
+        const formData = new FormData();
+        formData.append("audioChunk", finalBlob);
+        formData.append("isFirst", "false");
+        formData.append("isLast", "true");
+        formData.append("sessionId", user?.id || "anonymous");
+
+        const response = await fetch("/api/realtime", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log("✅ Realtime Final:", data);
+
+          setRealtimeTranscript(data.transcript);
+          setStatusMessage("🎉 Realtime: " + data.chatResponse);
+
+          // Hier würde Audio-Response integriert werden
+          setTimeout(() => {
+            setStatusMessage("Klicken zum Sprechen");
+            setRealtimeTranscript("");
+          }, 3000);
+        }
+      } catch (error) {
+        console.error("❌ Realtime Final Error:", error);
+        setStatusMessage("Realtime-Verarbeitung fehlgeschlagen");
+      } finally {
+        setIsProcessing(false);
+        realtimeChunksRef.current = [];
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+        }
+      }
+    });
+  }
 
   const playPendingAudio = async () => {
     if (!pendingAudio || typeof window === "undefined") return;
@@ -848,21 +990,32 @@ function AudioRecorder() {
     });
   }
 
-  function getButtonText() {
-    if (isProcessing) return "Verarbeitet...";
-    if (isRecording) return "Fertig sprechen";
-    return "Sprechen";
-  }
-
   function handleButtonClick() {
     if (isProcessing) return; // Keine Aktion während Verarbeitung
 
-    if (isRecording) {
-      // Optional: Manueller Stop ist weiterhin möglich
-      stopRecording();
+    if (isRealtimeMode) {
+      // Realtime-Modus
+      if (isRecording) {
+        stopRealtimeRecording();
+      } else {
+        startRealtimeRecording();
+      }
     } else {
-      startRecording();
+      // Normaler Modus
+      if (isRecording) {
+        stopRecording();
+      } else {
+        startRecording();
+      }
     }
+  }
+
+  function getButtonText() {
+    if (isProcessing) return "Verarbeitet...";
+    if (isRecording) {
+      return isRealtimeMode ? "⏹️ Realtime Stop" : "Fertig sprechen";
+    }
+    return isRealtimeMode ? "🎙️ Realtime Start" : "Sprechen";
   }
 
   return (
@@ -876,7 +1029,22 @@ function AudioRecorder() {
         {voiceOptions.find((v) => v.id === selectedVoice)?.name}
       </VoiceSelectButton>
 
-      <Title>Mental 🧠 Co(u)ach</Title>
+      <RealtimeToggle
+        isActive={isRealtimeMode}
+        onClick={() => setIsRealtimeMode(!isRealtimeMode)}
+      >
+        {isRealtimeMode ? "⚡ Realtime AN" : "🐌 Normal"}
+      </RealtimeToggle>
+
+      <img
+        src="/images/mental-coauch-logo.png"
+        alt="Mental Co(u)ach Logo"
+        style={{
+          height: "180px",
+          marginBottom: "2rem",
+          objectFit: "contain",
+        }}
+      />
 
       {showVoiceSelector && (
         <VoiceSelectorContainer>

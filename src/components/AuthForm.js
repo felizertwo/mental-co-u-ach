@@ -183,7 +183,15 @@ export default function AuthForm() {
   return (
     <AuthContainer>
       <AuthCard>
-        <Title>🧠 Mental Co(u)ach</Title>
+        <img
+          src="/images/mental-coauch-logo.png"
+          alt="Mental Co(u)ach Logo"
+          style={{
+            height: "180px",
+            marginBottom: "1.5rem",
+            objectFit: "contain",
+          }}
+        />
         <Form onSubmit={handleSubmit}>
           <Input
             type="email"
