@@ -386,10 +386,11 @@ function AudioRecorder() {
   const streamRef = useRef(null);
   const vadCheckRef = useRef(null);
   const autoStopTimerRef = useRef(null);
+  const isRealtimeModeRef = useRef(false); // Ref für zuverlässigen Zugriff
 
-  // Voice Activity Detection Parameter - ULTRA SCHNELL
-  const SILENCE_THRESHOLD = -20; // dB - Nur echte laute Sprache
-  const SILENCE_DURATION = 400; // 0.4 Sekunden - SEHR schnell
+  // Voice Activity Detection Parameter
+  const SILENCE_THRESHOLD = -30; // dB - Weniger streng für bessere Erkennung
+  const SILENCE_DURATION = 1000; // 1 Sekunde - Längere Pause für zuverlässigere Erkennung
   const MAX_RECORDING_TIME = 10000; // 10 Sekunden maximale Aufnahmezeit
 
   // Coach Voice Options
@@ -530,6 +531,12 @@ function AudioRecorder() {
       setIsRecording(true);
       setStatusMessage("🎙️ Realtime-Modus aktiv - sprechen Sie...");
       setRealtimeTranscript("");
+
+      // Ref synchronisieren
+      isRealtimeModeRef.current = true;
+
+      // Voice Activity Detection für automatischen Stop
+      startVoiceActivityDetection(stream);
     } catch (error) {
       console.error("❌ Realtime Recording Error:", error);
       setStatusMessage("Realtime-Aufnahme fehlgeschlagen");
@@ -591,14 +598,43 @@ function AudioRecorder() {
           const data = await response.json();
           console.log("✅ Realtime Final:", data);
 
-          setRealtimeTranscript(data.transcript);
-          setStatusMessage("🎉 Realtime: " + data.chatResponse);
+          // setRealtimeTranscript(data.transcript); // Keine Textanzeige
+          setStatusMessage("🔄 Generiere Antwort...");
 
-          // Hier würde Audio-Response integriert werden
+          // TTS für Audio-Antwort
+          if (data.chatResponse && data.chatResponse.trim()) {
+            console.log("🔊 Generiere Realtime Audio-Antwort...");
+            const ttsResponse = await fetch("/api/tts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                text: data.chatResponse,
+                voice: selectedVoice.id,
+                sessionId: user?.id || "anonymous",
+              }),
+            });
+
+            if (ttsResponse.ok) {
+              const audioBlob = await ttsResponse.blob();
+              console.log("🎵 Realtime TTS erfolgreich, spiele ab...");
+
+              // Versuche automatische Wiedergabe
+              const success = await tryAutoPlay(audioBlob);
+              if (!success) {
+                // Fallback zu manueller Wiedergabe
+                setPendingAudio(audioBlob);
+                setShowAudioPlayer(true);
+                setStatusMessage("🎵 Antwort bereit - Klicke um zu hören!");
+              }
+            } else {
+              console.error("❌ Realtime TTS fehlgeschlagen");
+            }
+          }
+
           setTimeout(() => {
             setStatusMessage("Klicken zum Sprechen");
             setRealtimeTranscript("");
-          }, 3000);
+          }, 1000); // Verkürzt von 3000ms auf 1000ms
         }
       } catch (error) {
         console.error("❌ Realtime Final Error:", error);
@@ -693,8 +729,9 @@ function AudioRecorder() {
       dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
     const decibels = 20 * Math.log10(average / 255);
 
-    // SEHR aggressive Sprach-Erkennung
+    // Voice Activity Detection
     if (decibels > SILENCE_THRESHOLD) {
+      console.log(`🎤 Sprache erkannt: ${decibels.toFixed(1)}dB`);
       // Sprache erkannt - Timer sofort zurücksetzen
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
@@ -702,14 +739,14 @@ function AudioRecorder() {
       }
       setStatusMessage("Höre zu...");
     } else {
-      // Stille erkannt - SOFORTIGER Timer start
+      // Stille erkannt - Timer start
       if (!silenceTimerRef.current) {
         console.log(
-          `ULTRA SCHNELLER Stop in ${SILENCE_DURATION}ms bei ${decibels.toFixed(
+          `🔇 Stille erkannt: Stop in ${SILENCE_DURATION}ms bei ${decibels.toFixed(
             1
-          )}dB`
+          )}dB (Threshold: ${SILENCE_THRESHOLD}dB)`
         );
-        setStatusMessage("Stop in 0.4s...");
+        setStatusMessage(`Stop in ${SILENCE_DURATION / 1000}s...`);
         silenceTimerRef.current = setTimeout(() => {
           console.log("⚡ BLITZ-STOP!");
           if (recorderRef.current && streamRef.current) {
@@ -753,15 +790,49 @@ function AudioRecorder() {
     };
   }, []);
 
+  // Automatischer Stop für Realtime-Modus mit VAD
+  useEffect(() => {
+    let autoStopTimer = null;
+
+    if (isRecording && isRealtimeMode) {
+      console.log("🎙️ Realtime: Auto-Stop mit VAD aktiviert");
+      // Längerer Fallback-Timer (10 Sekunden) falls VAD nicht triggert
+      autoStopTimer = setTimeout(() => {
+        console.log("⏰ Fallback Auto-Stop nach 10s (VAD backup)");
+        if (recorderRef.current) {
+          stopRealtimeRecording();
+        }
+      }, 10000);
+    }
+
+    return () => {
+      if (autoStopTimer) {
+        clearTimeout(autoStopTimer);
+      }
+    };
+  }, [isRecording, isRealtimeMode]); // Dependency Array
+
   // Separate Funktion für automatischen Stop durch VAD
   function triggerAutoStop() {
     console.log("triggerAutoStop aufgerufen durch VAD");
+    console.log("📊 State isRealtimeMode:", isRealtimeMode);
+    console.log("📊 Ref isRealtimeModeRef.current:", isRealtimeModeRef.current);
     setStatusMessage("Stoppe automatisch...");
-    setIsRecording(false);
-    setIsProcessing(true);
 
     // Voice Activity Detection stoppen
     stopVoiceActivityDetection();
+
+    // Prüfen ob Realtime-Modus aktiv ist (verwende Ref für zuverlässigen Zugriff)
+    if (isRealtimeModeRef.current) {
+      console.log("🔄 VAD triggert Realtime-Stop");
+      stopRealtimeRecording();
+      return;
+    }
+
+    console.log("📞 VAD triggert normalen Stop");
+    // Normaler Modus
+    setIsRecording(false);
+    setIsProcessing(true);
 
     recorderRef.current.stopRecording(async () => {
       console.log("⚡ SCHNELLE Verarbeitung startet...");
@@ -1031,7 +1102,11 @@ function AudioRecorder() {
 
       <RealtimeToggle
         isActive={isRealtimeMode}
-        onClick={() => setIsRealtimeMode(!isRealtimeMode)}
+        onClick={() => {
+          const newMode = !isRealtimeMode;
+          setIsRealtimeMode(newMode);
+          isRealtimeModeRef.current = newMode; // Sync mit Ref
+        }}
       >
         {isRealtimeMode ? "⚡ Realtime AN" : "🐌 Normal"}
       </RealtimeToggle>
